@@ -1,5 +1,5 @@
-const SUPABASE_URL = "https://YOUR_PROJECT.supabase.co";
-const SUPABASE_ANON_KEY = "YOUR_ANON_KEY";
+const SUPABASE_URL = "https://vouwbruwkqqoxunitthw.supabase.co";
+const SUPABASE_ANON_KEY = "sb_publishable_gW0Whd0A5ntjcTis4EnmNw_ER-LgBh_";
 const ENTRIES_TABLE = "entries";
 const LOG_TABLE = "entries_log";
 const THEME_KEY = "crossland.theme";
