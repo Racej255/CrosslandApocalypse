@@ -1,6 +1,13 @@
-const STORAGE_KEY = "crossland.entries";
-const LOG_KEY = "crossland.entryLog";
+const SUPABASE_URL = "https://YOUR_PROJECT.supabase.co";
+const SUPABASE_ANON_KEY = "YOUR_ANON_KEY";
+const ENTRIES_TABLE = "entries";
+const LOG_TABLE = "entries_log";
 const THEME_KEY = "crossland.theme";
+const SEED_KEY = "crossland.seeded";
+
+const API_BASE = SUPABASE_URL ? `${SUPABASE_URL}/rest/v1` : "";
+const ENTRIES_ENDPOINT = `${API_BASE}/${ENTRIES_TABLE}`;
+const LOG_ENDPOINT = `${API_BASE}/${LOG_TABLE}`;
 
 const sampleEntries = [
   {
@@ -75,35 +82,38 @@ const views = {
 };
 
 const state = {
-  entries: loadEntries(),
-  log: loadLog(),
+  entries: [],
   filterUnread: false,
   theme: loadTheme(),
 };
 
-function loadEntries() {
-  const raw = localStorage.getItem(STORAGE_KEY);
-  if (!raw) {
-    return sampleEntries.map(normalizeEntry);
-  }
-  try {
-    const parsed = JSON.parse(raw);
-    return Array.isArray(parsed) ? parsed.map(normalizeEntry) : sampleEntries.map(normalizeEntry);
-  } catch (error) {
-    return sampleEntries.map(normalizeEntry);
-  }
+function isSupabaseConfigured() {
+  return (
+    SUPABASE_URL &&
+    SUPABASE_ANON_KEY &&
+    !SUPABASE_URL.includes("YOUR_PROJECT") &&
+    !SUPABASE_ANON_KEY.includes("YOUR_ANON")
+  );
 }
 
-function loadLog() {
-  const raw = localStorage.getItem(LOG_KEY);
-  if (!raw) {
-    return [];
-  }
+function buildHeaders(extra = {}) {
+  return {
+    "Content-Type": "application/json",
+    apikey: SUPABASE_ANON_KEY,
+    Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
+    ...extra,
+  };
+}
+
+async function loadRepoJson(relativePath) {
   try {
-    const parsed = JSON.parse(raw);
-    return Array.isArray(parsed) ? parsed : [];
+    const response = await fetch(relativePath);
+    if (!response.ok) {
+      return null;
+    }
+    return response.json();
   } catch (error) {
-    return [];
+    return null;
   }
 }
 
@@ -111,37 +121,256 @@ function loadTheme() {
   return localStorage.getItem(THEME_KEY) || "light";
 }
 
-function saveEntries() {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(state.entries));
-}
-
-function saveLog() {
-  localStorage.setItem(LOG_KEY, JSON.stringify(state.log));
-}
-
-function pushLog(type, payload) {
-  state.log.push({
-    id: `log-${Date.now()}`,
-    timestamp: new Date().toISOString(),
-    type,
-    ...payload,
+async function apiRequest(url, options = {}) {
+  if (!isSupabaseConfigured()) {
+    throw new Error("Supabase not configured");
+  }
+  const response = await fetch(url, {
+    ...options,
+    headers: buildHeaders(options.headers),
   });
-  saveLog();
+
+  if (!response.ok) {
+    throw new Error("Request failed");
+  }
+
+  if (response.status === 204) {
+    return null;
+  }
+
+  return response.json();
+}
+
+function getId() {
+  if (typeof crypto !== "undefined" && crypto.randomUUID) {
+    return crypto.randomUUID();
+  }
+  return `entry-${Date.now()}`;
+}
+
+function toApiEntry(entry) {
+  return {
+    id: entry.id,
+    name: entry.name,
+    date: entry.date,
+    title: entry.title,
+    content_html: entry.contentHtml || entry.content_html || "",
+    read: Boolean(entry.read),
+  };
+}
+
+function toLogRow(entry) {
+  const action = entry.action || entry.type || "import";
+  const payload = entry.payload || entry.entry || entry;
+  const createdAt = entry.created_at || entry.timestamp;
+  const row = { action, payload };
+  if (createdAt) {
+    row.created_at = createdAt;
+  }
+  return row;
 }
 
 function normalizeEntry(entry) {
-  if (entry.contentHtml) {
-    return {
-      ...entry,
-      read: Boolean(entry.read),
-    };
-  }
-  const content = entry.content || "";
-  return {
+  const contentHtml = entry.content_html ?? entry.contentHtml ?? entry.content ?? "";
+  const resolved = {
     ...entry,
+    contentHtml,
     read: Boolean(entry.read),
-    contentHtml: wrapTextInParagraphs(content),
   };
+
+  if (!resolved.contentHtml) {
+    resolved.contentHtml = wrapTextInParagraphs("");
+  }
+
+  return resolved;
+}
+
+async function loadEntries() {
+  if (!isSupabaseConfigured()) {
+    return sampleEntries.map(normalizeEntry);
+  }
+  try {
+    const data = await apiRequest(`${ENTRIES_ENDPOINT}?select=*`);
+    const entries = Array.isArray(data) ? data : data.entries || [];
+    return entries.map(normalizeEntry);
+  } catch (error) {
+    return sampleEntries.map(normalizeEntry);
+  }
+}
+
+async function appendLog(action, payload) {
+  if (!isSupabaseConfigured()) {
+    return;
+  }
+  try {
+    await apiRequest(LOG_ENDPOINT, {
+      method: "POST",
+      headers: {
+        Prefer: "return=representation",
+      },
+      body: JSON.stringify({
+        action,
+        payload,
+      }),
+    });
+  } catch (error) {
+    // Best-effort logging.
+  }
+}
+
+async function createEntry(entry) {
+  const newEntry = {
+    ...entry,
+    id: entry.id || getId(),
+    read: Boolean(entry.read),
+  };
+
+  if (!isSupabaseConfigured()) {
+    const normalized = normalizeEntry(newEntry);
+    state.entries.push(normalized);
+    return normalized;
+  }
+
+  const data = await apiRequest(ENTRIES_ENDPOINT, {
+    method: "POST",
+    headers: {
+      Prefer: "return=representation",
+    },
+    body: JSON.stringify(toApiEntry(newEntry)),
+  });
+  const saved = Array.isArray(data) ? data[0] : data;
+  if (!saved) {
+    return null;
+  }
+  const normalized = normalizeEntry(saved);
+  state.entries.push(normalized);
+  appendLog("create", { entry: normalized });
+  return normalized;
+}
+
+async function updateEntry(entryId, updates, previous) {
+  if (!isSupabaseConfigured()) {
+    return null;
+  }
+
+  const data = await apiRequest(`${ENTRIES_ENDPOINT}?id=eq.${encodeURIComponent(entryId)}`, {
+    method: "PATCH",
+    headers: {
+      Prefer: "return=representation",
+    },
+    body: JSON.stringify(toApiEntry(updates)),
+  });
+  const saved = Array.isArray(data) ? data[0] : data;
+  if (!saved) {
+    return null;
+  }
+  const normalized = normalizeEntry(saved);
+  state.entries = state.entries.map((entry) =>
+    entry.id === entryId ? normalized : entry
+  );
+  if (previous) {
+    appendLog("update", { before: normalizeEntry(previous), after: normalized });
+  }
+  return normalized;
+}
+
+async function deleteEntry(entryId) {
+  if (!isSupabaseConfigured()) {
+    return null;
+  }
+
+  const data = await apiRequest(`${ENTRIES_ENDPOINT}?id=eq.${encodeURIComponent(entryId)}`, {
+    method: "DELETE",
+    headers: {
+      Prefer: "return=representation",
+    },
+  });
+  const removed = Array.isArray(data) ? data[0] : data;
+  if (!removed) {
+    return null;
+  }
+  const normalized = normalizeEntry(removed);
+  state.entries = state.entries.filter((entry) => entry.id !== entryId);
+  appendLog("delete", { entry: normalized });
+  return normalized;
+}
+
+async function seedFromRepo() {
+  if (!isSupabaseConfigured()) {
+    return;
+  }
+  if (localStorage.getItem(SEED_KEY) === "done") {
+    return;
+  }
+
+  try {
+    const [entryCheck, logCheck] = await Promise.all([
+      apiRequest(`${ENTRIES_ENDPOINT}?select=id&limit=1`),
+      apiRequest(`${LOG_ENDPOINT}?select=id&limit=1`),
+    ]);
+    const hasEntries = Array.isArray(entryCheck) && entryCheck.length > 0;
+    const hasLogs = Array.isArray(logCheck) && logCheck.length > 0;
+
+    if (!hasEntries) {
+      const repoEntries = await loadRepoJson("entries.json");
+      if (Array.isArray(repoEntries) && repoEntries.length) {
+        await apiRequest(`${ENTRIES_ENDPOINT}?on_conflict=id`, {
+          method: "POST",
+          headers: {
+            Prefer: "resolution=merge-duplicates,return=representation",
+          },
+          body: JSON.stringify(repoEntries.map((entry) => toApiEntry(entry))),
+        });
+      }
+    }
+
+    if (!hasLogs) {
+      const repoLogs = await loadRepoJson("entries-log.json");
+      if (Array.isArray(repoLogs) && repoLogs.length) {
+        await apiRequest(LOG_ENDPOINT, {
+          method: "POST",
+          headers: {
+            Prefer: "return=representation",
+          },
+          body: JSON.stringify(repoLogs.map((entry) => toLogRow(entry))),
+        });
+      }
+    }
+
+    localStorage.setItem(SEED_KEY, "done");
+  } catch (error) {
+    // Best-effort seeding.
+  }
+}
+
+async function syncFromRepo({ includeLogs = false } = {}) {
+  if (!isSupabaseConfigured()) {
+    return;
+  }
+
+  const repoEntries = await loadRepoJson("entries.json");
+  if (Array.isArray(repoEntries) && repoEntries.length) {
+    await apiRequest(`${ENTRIES_ENDPOINT}?on_conflict=id`, {
+      method: "POST",
+      headers: {
+        Prefer: "resolution=merge-duplicates,return=representation",
+      },
+      body: JSON.stringify(repoEntries.map((entry) => toApiEntry(entry))),
+    });
+  }
+
+  if (includeLogs) {
+    const repoLogs = await loadRepoJson("entries-log.json");
+    if (Array.isArray(repoLogs) && repoLogs.length) {
+      await apiRequest(LOG_ENDPOINT, {
+        method: "POST",
+        headers: {
+          Prefer: "return=representation",
+        },
+        body: JSON.stringify(repoLogs.map((entry) => toLogRow(entry))),
+      });
+    }
+  }
 }
 
 function wrapTextInParagraphs(text) {
@@ -349,7 +578,7 @@ function populateEntryForm(entry) {
   contentEditor.innerHTML = entry.contentHtml;
 }
 
-function handleSubmit(event) {
+async function handleSubmit(event) {
   event.preventDefault();
   const formData = new FormData(form);
   const entryId = String(formData.get("entry-id") || "").trim();
@@ -363,34 +592,40 @@ function handleSubmit(event) {
     return;
   }
 
-  if (entryId) {
-    const existingIndex = state.entries.findIndex((entry) => entry.id === entryId);
-    if (existingIndex !== -1) {
-      const previous = { ...state.entries[existingIndex] };
+  try {
+    if (entryId) {
+      const existing = getEntryById(entryId);
+      if (!existing) {
+        return;
+      }
       const updated = {
-        ...previous,
+        ...existing,
         name,
         date,
         title,
         contentHtml,
       };
-      state.entries[existingIndex] = updated;
-      pushLog("update", { before: previous, after: updated });
+      const saved = await updateEntry(entryId, updated, existing);
+      if (!saved) {
+        return;
+      }
+    } else {
+      const newEntry = {
+        name,
+        date,
+        title,
+        contentHtml,
+        read: false,
+      };
+      const saved = await createEntry(newEntry);
+      if (!saved) {
+        return;
+      }
     }
-  } else {
-    const newEntry = {
-      id: `entry-${Date.now()}`,
-      name,
-      date,
-      title,
-      contentHtml,
-      read: false,
-    };
-    state.entries.push(newEntry);
-    pushLog("create", { entry: newEntry });
+  } catch (error) {
+    return;
   }
 
-  saveEntries();
   render();
   resetEntryForm();
   closeModal(addModal);
@@ -453,7 +688,7 @@ function openDateModal(date, entries) {
   openModal(dateModal);
 }
 
-function openEntryModal(entry) {
+async function openEntryModal(entry) {
   closeModal(dateModal);
   entryModal.dataset.entryId = entry.id;
   entryTitle.textContent = entry.title;
@@ -470,18 +705,19 @@ function openEntryModal(entry) {
   entryMeta.append(name, date);
   entryBody.innerHTML = entry.contentHtml;
 
-  if (!entry.read) {
-    const previous = { ...entry };
-    entry.read = true;
-    pushLog("update", { before: previous, after: { ...entry } });
-    saveEntries();
-    render();
-  }
-
   updateReadButton(entry);
   updateNavButtons(entry);
   closeEntryMenu();
   openModal(entryModal);
+
+  if (!entry.read) {
+    const updated = await updateEntry(entry.id, { ...entry, read: true }, entry);
+    if (updated) {
+      updateReadButton(updated);
+      updateNavButtons(updated);
+      render();
+    }
+  }
 }
 
 function updateReadButton(entry) {
@@ -499,7 +735,7 @@ function updateNavButtons(entry) {
   nextEntryButton.disabled = index === -1 || index >= navEntries.length - 1;
 }
 
-function navigateEntry(direction) {
+async function navigateEntry(direction) {
   const navEntries = getNavEntries();
   const currentId = entryModal.dataset.entryId;
   const index = navEntries.findIndex((item) => item.id === currentId);
@@ -508,7 +744,7 @@ function navigateEntry(direction) {
   }
   const target = navEntries[index + direction];
   if (target) {
-    openEntryModal(target);
+    await openEntryModal(target);
   }
 }
 
@@ -516,10 +752,14 @@ function getEntryById(entryId) {
   return state.entries.find((entry) => entry.id === entryId);
 }
 
+function updateFilterButton() {
+  filterButton.textContent = state.filterUnread ? "Unread" : "Read";
+  filterButton.classList.toggle("is-active", state.filterUnread);
+}
+
 function toggleUnreadFilter() {
   state.filterUnread = !state.filterUnread;
-  filterButton.classList.toggle("is-active", state.filterUnread);
-  filterButton.textContent = state.filterUnread ? "Unread" : "Read";
+  updateFilterButton();
   render();
 }
 
@@ -562,8 +802,13 @@ form.addEventListener("submit", handleSubmit);
 
 themeToggleButton.addEventListener("click", toggleTheme);
 
-prevEntryButton.addEventListener("click", () => navigateEntry(-1));
-nextEntryButton.addEventListener("click", () => navigateEntry(1));
+prevEntryButton.addEventListener("click", () => {
+  navigateEntry(-1);
+});
+
+nextEntryButton.addEventListener("click", () => {
+  navigateEntry(1);
+});
 
 entryMenuToggle.addEventListener("click", (event) => {
   event.stopPropagation();
@@ -598,18 +843,17 @@ document.querySelectorAll("[data-close]").forEach((button) => {
   });
 });
 
-toggleReadButton.addEventListener("click", () => {
+toggleReadButton.addEventListener("click", async () => {
   const entry = getEntryById(entryModal.dataset.entryId);
   if (!entry) {
     return;
   }
-  const previous = { ...entry };
-  entry.read = !entry.read;
-  pushLog("update", { before: previous, after: { ...entry } });
-  saveEntries();
-  updateReadButton(entry);
-  updateNavButtons(entry);
-  render();
+  const updated = await updateEntry(entry.id, { ...entry, read: !entry.read }, entry);
+  if (updated) {
+    updateReadButton(updated);
+    updateNavButtons(updated);
+    render();
+  }
 });
 
 editEntryButton.addEventListener("click", () => {
@@ -623,7 +867,7 @@ editEntryButton.addEventListener("click", () => {
   openModal(addModal);
 });
 
-deleteEntryButton.addEventListener("click", () => {
+deleteEntryButton.addEventListener("click", async () => {
   const entry = getEntryById(entryModal.dataset.entryId);
   if (!entry) {
     return;
@@ -633,11 +877,11 @@ deleteEntryButton.addEventListener("click", () => {
   if (!shouldDelete) {
     return;
   }
-  state.entries = state.entries.filter((item) => item.id !== entry.id);
-  pushLog("delete", { entry });
-  saveEntries();
-  render();
-  closeModal(entryModal);
+  const removed = await deleteEntry(entry.id);
+  if (removed) {
+    render();
+    closeModal(entryModal);
+  }
 });
 
 function openModal(modal) {
@@ -656,6 +900,17 @@ function closeModal(modal) {
   modal.setAttribute("aria-hidden", "true");
 }
 
-applyTheme(state.theme);
-filterButton.textContent = state.filterUnread ? "Unread" : "Read";
-render();
+async function init() {
+  applyTheme(state.theme);
+  updateFilterButton();
+  const params = new URLSearchParams(window.location.search);
+  if (params.get("sync") === "1") {
+    await syncFromRepo({ includeLogs: params.get("logs") === "1" });
+  } else {
+    await seedFromRepo();
+  }
+  state.entries = await loadEntries();
+  render();
+}
+
+init();
