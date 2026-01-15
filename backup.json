@@ -1,0 +1,37 @@
+{
+  "entries": [
+    {
+      "id": "e1",
+      "name": "Rhea Crossland",
+      "date": "2039-04-18",
+      "title": "Smoke on the ridge",
+      "read": false,
+      "contentHtml": "<p>Northern horizon burned all night. We counted six impacts. Supplies low, morale thinner.</p>"
+    },
+    {
+      "id": "e2",
+      "name": "Silas Wren",
+      "date": "2039-04-20",
+      "title": "Transit tunnel",
+      "read": false,
+      "contentHtml": "<p>We reached the transit tunnel before dusk. The echo of footsteps follows us even when we stop.</p>"
+    },
+    {
+      "id": "e3",
+      "name": "Mara Voss",
+      "date": "2039-04-22",
+      "title": "The water table",
+      "read": false,
+      "contentHtml": "<p>Found a clean vein beneath the old courthouse. Trading two batteries for a filter.</p>"
+    },
+    {
+      "id": "e4",
+      "name": "Rhea Crossland",
+      "date": "2039-04-25",
+      "title": "Last radio beacon",
+      "read": false,
+      "contentHtml": "<p>Radio chatter says the coast is gone. We still keep watch for the southbound signal.</p>"
+    }
+  ],
+  "log": []
+}

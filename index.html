@@ -1,0 +1,244 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Crossland Apocalypse Journals</title>
+    <link rel="stylesheet" href="styles.css" />
+    <link
+      rel="preconnect"
+      href="https://fonts.googleapis.com"
+    />
+    <link
+      rel="preconnect"
+      href="https://fonts.gstatic.com"
+      crossorigin
+    />
+    <link
+      href="https://fonts.googleapis.com/css2?family=IM+Fell+English:ital@0;1&family=Space+Grotesk:wght@300;400;600&display=swap"
+      rel="stylesheet"
+    />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Caveat:wght@400;600&family=Cormorant+Garamond:wght@400;600&display=swap"
+      rel="stylesheet"
+    />
+  </head>
+  <body>
+    <div class="ember-grid"></div>
+    <div class="journal">
+      <header class="hero">
+        <div class="hero__glow"></div>
+        <div class="hero__content">
+          <p class="eyebrow">Archives of the Crossland Museum</p>
+          <h1 class="hero__title">
+            Journals recovered from Skipton Castle
+            <span class="hero__subheading">Historical artefacts dated to the 21st century</span>
+          </h1>
+        </div>
+      </header>
+
+      <nav class="menu-bar">
+        <button class="toggle is-active" data-view="timeline" type="button">
+          Timeline
+        </button>
+        <button class="toggle" data-view="authors" type="button">Author</button>
+        <button class="toggle" id="filter-unread" type="button">Unread</button>
+        <button class="icon-btn icon-btn--menu" id="theme-toggle" type="button" aria-label="Toggle dark mode">
+          <span class="icon-btn__icon">
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path
+                d="M9 18h6M10 21h4M12 3a6 6 0 0 0-3 11v2h6v-2a6 6 0 0 0-3-11z"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="1.6"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              />
+            </svg>
+          </span>
+        </button>
+        <button class="toggle" id="open-add" type="button">New entry</button>
+      </nav>
+
+      <main>
+        <section class="views">
+          <div id="timeline-view" class="view is-active">
+            <div class="timeline-shell">
+              <div id="timeline" class="timeline"></div>
+            </div>
+          </div>
+
+          <div id="authors-view" class="view">
+            <div class="view__header">
+              <h2>By Author</h2>
+            </div>
+            <div id="authors" class="authors"></div>
+          </div>
+        </section>
+      </main>
+    </div>
+
+    <div class="modal" id="add-modal" aria-hidden="true">
+      <div class="modal__overlay" data-close="add-modal"></div>
+      <div class="modal__panel">
+        <div class="modal__header">
+          <div>
+            <h2 id="entry-form-title">New Journal Entry</h2>
+            <p>Everything is stored in this browser only.</p>
+          </div>
+          <button class="modal__close" data-close="add-modal" aria-label="Close new entry form">
+            Close
+          </button>
+        </div>
+        <form id="entry-form" class="entry-form entry-form--modal">
+          <input type="hidden" id="entry-id" name="entry-id" />
+          <div class="field">
+            <label for="name">Uploader</label>
+            <input id="name" name="name" type="text" placeholder="Rhea Crossland" required />
+          </div>
+          <div class="field">
+            <label for="date">Entry date</label>
+            <input id="date" name="date" type="date" required />
+          </div>
+          <div class="field field--wide">
+            <label for="title">Entry title</label>
+            <input id="title" name="title" type="text" placeholder="Smoke on the ridge" required />
+          </div>
+          <div class="field field--wide">
+            <label for="content-editor">Entry text</label>
+            <div class="editor-toolbar">
+              <button type="button" class="tool-btn" data-command="bold">Bold</button>
+              <button type="button" class="tool-btn" data-command="underline">Underline</button>
+              <button type="button" class="tool-btn" data-command="insertUnorderedList">Bullets</button>
+              <select class="tool-select" data-command="fontSize" aria-label="Text size">
+                <option value="2">Small</option>
+                <option value="3" selected>Normal</option>
+                <option value="5">Large</option>
+                <option value="6">XL</option>
+              </select>
+            </div>
+            <div
+              id="content-editor"
+              class="editor"
+              contenteditable="true"
+              data-placeholder="Write the details that matter..."
+            ></div>
+          </div>
+          <button type="submit" class="cta" id="entry-submit">Add to archive</button>
+        </form>
+      </div>
+    </div>
+
+    <div class="modal" id="date-modal" aria-hidden="true">
+      <div class="modal__overlay" data-close="date-modal"></div>
+      <div class="modal__panel modal__panel--wide">
+        <div class="modal__header">
+          <div>
+            <h2 id="date-modal-title">Entries</h2>
+            <p>Click an entry to open the full log.</p>
+          </div>
+          <button class="modal__close" data-close="date-modal" aria-label="Close date view">
+            Close
+          </button>
+        </div>
+        <div id="date-entry-list" class="date-list"></div>
+      </div>
+    </div>
+
+    <div class="modal" id="entry-modal" aria-hidden="true">
+      <div class="modal__overlay" data-close="entry-modal"></div>
+      <button class="entry-nav entry-nav--prev" id="prev-entry" type="button" aria-label="Previous entry">
+        <span class="icon-btn__icon">
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path
+              d="M14.5 5.5L8 12l6.5 6.5"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="1.6"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            />
+          </svg>
+        </span>
+      </button>
+      <button class="entry-nav entry-nav--next" id="next-entry" type="button" aria-label="Next entry">
+        <span class="icon-btn__icon">
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path
+              d="M9.5 5.5L16 12l-6.5 6.5"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="1.6"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            />
+          </svg>
+        </span>
+      </button>
+      <div class="modal__panel modal__panel--wide">
+        <div class="modal__header">
+          <div>
+            <h2 id="entry-title"></h2>
+            <div id="entry-meta" class="entry-meta"></div>
+          </div>
+          <div class="modal__actions">
+            <button class="icon-btn" id="toggle-read" type="button" aria-label="Mark as read">
+              <span class="icon-btn__icon icon-btn__icon--read">
+                <svg viewBox="0 0 24 24" aria-hidden="true">
+                  <path
+                    d="M9 12l2 2 4-4M12 20a8 8 0 1 0-8-8 8 8 0 0 0 8 8z"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="1.6"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                  />
+                </svg>
+              </span>
+              <span class="icon-btn__icon icon-btn__icon--unread">
+                <svg viewBox="0 0 24 24" aria-hidden="true">
+                  <path
+                    d="M4 12s3-5 8-5 8 5 8 5-3 5-8 5-8-5-8-5zM12 9v6"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="1.6"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                  />
+                </svg>
+              </span>
+            </button>
+            <div class="entry-menu" id="entry-menu">
+              <button class="ghost-btn" id="entry-menu-toggle" type="button" aria-expanded="false">
+                ...
+              </button>
+              <div class="entry-menu__list" role="menu">
+                <button class="entry-menu__item" id="edit-entry" type="button" role="menuitem">
+                  Edit
+                </button>
+                <button
+                  class="entry-menu__item entry-menu__item--warn"
+                  id="delete-entry"
+                  type="button"
+                  role="menuitem"
+                >
+                  Delete
+                </button>
+              </div>
+            </div>
+            <button class="modal__close" data-close="entry-modal" aria-label="Close entry">
+              Close
+            </button>
+          </div>
+        </div>
+        <div id="entry-body" class="entry-body"></div>
+      </div>
+    </div>
+
+    <footer class="footer">
+      <p>Crossland archive is a local log. Refresh to keep the fire alive.</p>
+    </footer>
+
+    <script src="script.js"></script>
+  </body>
+</html>
